@@ -11,26 +11,30 @@ import { endOfMonth, endOfYear, startOfMonth, startOfYear, subMonths, subDays, s
 import api from "../orthancApi";
 import { ref } from 'vue';
 
-document._allowedFilters = ["StudyDate", "StudyTime", "AccessionNumber", "PatientID", "PatientName", "PatientBirthDate", "StudyInstanceUID", "StudyID", "StudyDescription", "ModalitiesInStudy"]
+document._allowedFilters = ["StudyDate", "StudyTime", "AccessionNumber", "PatientID", "PatientName", "PatientBirthDate", "StudyInstanceUID", "StudyID", "StudyDescription", "ModalitiesInStudy", "labels"]
 
 document._studyColumns = {
     "StudyDate": {
         "width": "7%"
     },
     "AccessionNumber": {
-        "width": "11%"
+        "width": "11%",
+        "placeholder": "1234"
     },
     "PatientID": {
-        "width": "11%"
+        "width": "11%",
+        "placeholder": "1234"
     },
     "PatientName": {
-        "width": "15%"
+        "width": "15%",
+        "placeholder": "John^Doe"
     },
     "PatientBirthDate": {
         "width": "7%"
     },
     "StudyDescription": {
-        "width": "25%"
+        "width": "25%",
+        "placeholder": "Chest"
     },
     "modalities": {
         "width": "6%"
@@ -38,6 +42,9 @@ document._studyColumns = {
     "seriesCount": {
         "width": "4%"
     },
+    "undefined": {
+        "width": "10%"
+    }
 };
 
 document._datePickerPresetRanges = [
@@ -57,13 +64,12 @@ export default {
         return {
             filterStudyDate: '',
             filterStudyDateForDatePicker: '',
-            filterAccessionNumber: '',
-            filterPatientID: '',
-            filterPatientName: '',
             filterPatientBirthDate: '',
             filterPatientBirthDateForDatePicker: '',
-            filterStudyDescription: '',
             filterModalities: {},
+            filterGenericTags : {},
+            oldFilterGenericTags : {},
+            filterLabels: {},
             allModalities: true,
             noneModalities: false,
             updatingFilterUi: false,
@@ -126,13 +132,41 @@ export default {
             // this is called when opening the page (with a filter or not)
             // console.log("StudyList: Configuration has been loaded, updating study filter: ", this.$route.params.filters);
             this.initModalityFilter();
+            for (const tag of this.uiOptions.StudyListColumns) {
+            if (['StudyDate', 'PatientBirthDate', 'modalities', 'seriesCount'].indexOf(tag) == -1) {
+                this.filterGenericTags[tag] = '';
+            }
+        }
             this.updateFilterFromRoute(this.$route.query);
+        },
+        filterLabels: {
+            handler(newValue, oldValue) {
+                if (!this.updatingFilterUi && !this.initializingModalityFilter) {
+                    //    console.log("StudyList: filterModalities watcher", newValue, oldValue);
+                    this.updateFilter('labels', this.filterLabels, null);
+                }
+            },
+            deep: true
         },
         filterModalities: {
             handler(newValue, oldValue) {
                 if (!this.updatingFilterUi && !this.initializingModalityFilter) {
                     //    console.log("StudyList: filterModalities watcher", newValue, oldValue);
                     this.updateFilter('ModalitiesInStudy', this.getModalityFilter(), null);
+                }
+            },
+            deep: true
+        },
+        filterGenericTags: {
+            handler(newValue, oldValue) {
+                // oldValue is the same as newValue for deep watchers
+                for (const [k, v] of Object.entries(this.filterGenericTags)) {
+                    let oldValue = null;
+                    if (k in this.oldFilterGenericTags) {
+                        oldValue = this.oldFilterGenericTags[k]
+                    }
+                    this.updateFilter(k, v, oldValue);
+                    this.oldFilterGenericTags[k] = v;
                 }
             },
             deep: true
@@ -149,15 +183,6 @@ export default {
             // console.log("watch filterStudyDateForDatePicker", newValue, dicomNewValue);
             this.filterStudyDate = dicomNewValue;
         },
-        filterAccessionNumber(newValue, oldValue) {
-            this.updateFilter('AccessionNumber', newValue, oldValue);
-        },
-        filterPatientID(newValue, oldValue) {
-            this.updateFilter('PatientID', newValue, oldValue);
-        },
-        filterPatientName(newValue, oldValue) {
-            this.updateFilter('PatientName', newValue, oldValue);
-        },
         filterPatientBirthDate(newValue, oldValue) {
             this.updateFilter('PatientBirthDate', newValue, oldValue);
         },
@@ -169,9 +194,6 @@ export default {
             // console.log("watch filterPatientBirthDateForDatePicker", newValue, dicomNewValue);
             this.filterPatientBirthDate = dicomNewValue;
         },
-        filterStudyDescription(newValue, oldValue) {
-            this.updateFilter('StudyDescription', newValue, oldValue);
-        },
         selectedStudiesIds: {
             handler(oldValue, newValue) {
                 this.updateSelectAll();
@@ -181,6 +203,7 @@ export default {
     },
     async created() {
         this.messageBus.on('language-changed', this.translateDatePicker);
+        this.messageBus.on('filter-label-changed', this.updateLabelsFilter);
     },
     async mounted() {
         this.updateSelectAll();
@@ -216,16 +239,19 @@ export default {
             if (tagName == "seriesCount") {
                 return this.$i18n.t('series_count_header');
             } else if (tagName == "modalities") {
-                return translateDicomTag(this.$i18n.t, "ModalitiesInStudy");
+                return translateDicomTag(this.$i18n.t, this.$i18n.te, "ModalitiesInStudy");
             } else {
-                return translateDicomTag(this.$i18n.t, tagName);
+                return translateDicomTag(this.$i18n.t, this.$i18n.te, tagName);
             }
         },
         columnTooltip(tagName) {
-            if (tagName == "modalities") {
-                return translateDicomTag(this.$i18n.t, "ModalitiesInStudy");
+            return this.columnTitle(tagName);
+        },
+        columnWidth(tagName) {
+            if (tagName in this.columns) {
+                return this.columns[tagName].width;
             } else {
-                return translateDicomTag(this.$i18n.t, tagName);
+                return this.columns[undefined].width;
             }
         },
         clearModalityFilter() {
@@ -233,6 +259,9 @@ export default {
             for (const modality of this.uiOptions.ModalitiesFilter) {
                 this.filterModalities[modality] = true;
             }
+        },
+        updateLabelsFilter(label) {
+            this.filterLabels = [label];
         },
         initModalityFilter() {
             // console.log("StudyList: initModalityFilter", this.updatingFilterUi);
@@ -280,9 +309,13 @@ export default {
 
             // console.log("StudyList: updateFilter", this.updatingFilterUi);
 
-            if (oldValue == null) { // not text: e.g. modalities in study -> update directly
+            if (dicomTagName == "ModalitiesInStudy" && oldValue == null) { // not text: e.g. modalities in study -> update directly
                 this._updateFilter(dicomTagName, newValue);
                 return;
+            }
+
+            if (dicomTagName == "labels" && newValue != oldValue) {
+                this._updateLabelsFilter(newValue);
             }
 
             if (!this.isSearchAsYouTypeEnabled) {
@@ -295,7 +328,7 @@ export default {
                     clearTimeout(this.searchTimerHandler[dicomTagName]);
                 }
                 this.searchTimerHandler[dicomTagName] = setTimeout(() => { this._updateFilter(dicomTagName, newValue) }, this.uiOptions.StudyListSearchAsYouTypeDelay);
-            } else if (newValue.length < oldValue.length && oldValue.length >= this.uiOptions.StudyListSearchAsYouTypeMinChars) { // when deleting filter
+            } else if (oldValue && newValue.length < oldValue.length && oldValue.length >= this.uiOptions.StudyListSearchAsYouTypeMinChars) { // when deleting filter
                 this.searchTimerHandler[dicomTagName] = setTimeout(() => { this._updateFilter(dicomTagName, "") }, this.uiOptions.StudyListSearchAsYouTypeDelay);
             }
         },
@@ -321,27 +354,39 @@ export default {
         },
         getFilterClass(dicomTagName) {
             const value = this.getFilterValue(dicomTagName)
-            if (value.length > 0 && !this.isFilterLongEnough(dicomTagName, value)) {
+            if (value != null && value.length > 0 && !this.isFilterLongEnough(dicomTagName, value)) {
                 return "is-invalid-filter";
             }
             return "";
         },
+        hasFilter(tagName) {
+            return ['seriesCount'].indexOf(tagName) == -1;
+        },
+        getFilterPlaceholder(tagName) {
+            if (tagName in this.columns && this.columns[tagName].placeholder) {
+                return this.columns[tagName].placeholder;
+            } else {
+                return "search-text";
+            }
+        },
         getFilterValue(dicomTagName) {
+            if (!this.isConfigurationLoaded) {
+                return null;
+            }
             if (dicomTagName == "StudyDate") {
                 return this.filterStudyDate;
-            } else if (dicomTagName == "AccessionNumber") {
-                return this.filterAccessionNumber;
-            } else if (dicomTagName == "PatientID") {
-                return this.filterPatientID;
-            } else if (dicomTagName == "PatientName") {
-                return this.filterPatientName;
             } else if (dicomTagName == "PatientBirthDate") {
                 return this.filterPatientBirthDate;
-            } else if (dicomTagName == "StudyDescription") {
-                return this.filterStudyDescription;
             } else if (dicomTagName == "ModalitiesInStudy") {
                 console.error("getFilterValue ModalitiesInStudy");
+            } else {
+                return this.filterGenericTags[dicomTagName];
             }
+        },
+        _updateLabelsFilter(labels) {
+            this.$store.dispatch('studies/updateLabelsFilterNoReload', { labels: labels });
+            this.updateUrl();
+            this.reloadStudyList();
         },
         _updateFilter(dicomTagName, value) {
             this.searchTimerHandler[dicomTagName] = null;
@@ -357,13 +402,12 @@ export default {
             var keyValueFilters = {};
 
             for (const [filterKey, filterValue] of Object.entries(filters)) {
-                if (document._allowedFilters.indexOf(filterKey) == -1) {
-                    if (filterKey != 'forceRefresh') {
-                        console.log("StudyList: Not a filter Key: ", filterKey, filterValue)
-                    }
+                if (filterKey == "labels") {
+                    const labels = filterValue.split(",");
+                    keyValueFilters[filterKey] = labels;
+                    await this.$store.dispatch('studies/updateLabelsFilterNoReload', { labels: labels });
                 } else {
                     keyValueFilters[filterKey] = filterValue;
-
                     await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: filterKey, value: filterValue });
                 }
             }
@@ -378,20 +422,14 @@ export default {
             this.emptyFilterForm();
 
             for (const [key, value] of Object.entries(filters)) {
-                if (key == "StudyDate") {
+                if (key == "labels") {
+                    this.filterLabels = value;
+                } else if (key == "StudyDate") {
                     this.filterStudyDate = value;
                     this.filterStudyDateForDatePicker = resourceHelpers.parseDateForDatePicker(value);
-                } else if (key == "AccessionNumber") {
-                    this.filterAccessionNumber = value;
-                } else if (key == "PatientID") {
-                    this.filterPatientID = value;
-                } else if (key == "PatientName") {
-                    this.filterPatientName = value;
                 } else if (key == "PatientBirthDate") {
                     this.filterPatientBirthDate = value;
                     this.filterPatientBirthDateForDatePicker = resourceHelpers.parseDateForDatePicker(value);
-                } else if (key == "StudyDescription") {
-                    this.filterStudyDescription = value;
                 } else if (key == "ModalitiesInStudy") {
                     const modalities = value.split('\\');
                     if (modalities.length > 0) {
@@ -406,6 +444,8 @@ export default {
                         this.allModalities = allModalitiesInFilter;
                         this.noneModalities = noneModalitiesInFilter;
                     }
+                } else {
+                    this.filterGenericTags[key] = value;
                 }
             }
         },
@@ -413,25 +453,38 @@ export default {
             // console.log("StudyList: emptyFilterForm", this.updatingFilterUi);
             this.filterStudyDate = '';
             this.filterStudyDateForDatePicker = null;
-            this.filterAccessionNumber = '';
-            this.filterPatientID = '';
-            this.filterPatientName = '';
             this.filterPatientBirthDate = '';
             this.filterPatientBirthDateForDatePicker = null;
-            this.filterStudyDescription = '';
+            this.filterGenericTags = {};
+            for (const tag of this.uiOptions.StudyListColumns) {
+                if (['StudyDate', 'PatientBirthDate', 'modalities', 'seriesCount'].indexOf(tag) == -1) {
+                    this.filterGenericTags[tag] = '';
+                }
+            }
+            this.filterLabels = [];
             this.clearModalityFilter();
+        },
+        isFilteringOnlyOnLabels() {
+            let hasGenericTagFilter = false;
+            for (const tag of this.uiOptions.StudyListColumns) {
+                if (['StudyDate', 'PatientBirthDate', 'modalities', 'seriesCount'].indexOf(tag) == -1) {
+                    if (this.filterGenericTags[tag] && this.filterGenericTags[tag] != '') {
+                        hasGenericTagFilter = true;
+                    }
+                }
+            }
+            return this.filterStudyDate == '' && this.filterPatientBirthDate == '' && !hasGenericTagFilter && this.filterLabels.length > 0;
         },
         async search() {
             if (this.isSearching) {
                 await this.$store.dispatch('studies/cancelSearch');
             } else {
                 await this.$store.dispatch('studies/clearFilterNoReload');
-                await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: "StudyDate", value: this.filterStudyDate });
-                await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: "AccessionNumber", value: this.filterAccessionNumber });
-                await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: "PatientID", value: this.filterPatientID });
-                await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: "PatientName", value: this.filterPatientName });
-                await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: "PatientBirthDate", value: this.filterPatientBirthDate });
-                await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: "StudyDescription", value: this.filterStudyDescription });
+                for (const tag of this.uiOptions.StudyListColumns) {
+                    if (['modalities', 'seriesCount'].indexOf(tag) == -1) {
+                        await this.$store.dispatch('studies/updateFilterNoReload', { dicomTagName: tag, value: this.getFilterValue(tag) });    
+                    }
+                }
                 await this.reloadStudyList();
                 this.updateUrl();
             }
@@ -481,23 +534,19 @@ export default {
             if (this.clipFilter("StudyDate", this.filterStudyDate)) {
                 activeFilters.push('StudyDate=' + this.filterStudyDate);
             }
-            if (this.clipFilter("AccessionNumber", this.filterAccessionNumber)) {
-                activeFilters.push('AccessionNumber=' + this.filterAccessionNumber);
-            }
-            if (this.clipFilter("PatientID", this.filterPatientID)) {
-                activeFilters.push('PatientID=' + this.filterPatientID);
-            }
-            if (this.clipFilter("PatientName", this.filterPatientName)) {
-                activeFilters.push('PatientName=' + this.filterPatientName);
-            }
             if (this.clipFilter("PatientBirthDate", this.filterPatientBirthDate)) {
                 activeFilters.push('PatientBirthDate=' + this.filterPatientBirthDate);
             }
-            if (this.clipFilter("StudyDescription", this.filterStudyDescription)) {
-                activeFilters.push('StudyDescription=' + this.filterStudyDescription);
-            }
             if (this.getModalityFilter()) {
                 activeFilters.push('ModalitiesInStudy=' + this.getModalityFilter());
+            }
+            for (const [k, v] of Object.entries(this.filterGenericTags)) {
+                if (this.clipFilter(k, v)) {
+                    activeFilters.push(k + '=' + v);
+                }
+            }
+            if (this.filterLabels.length > 0) {
+                activeFilters.push('labels=' + this.filterLabels.join(","))
             }
 
             let newUrl = "";
@@ -509,7 +558,10 @@ export default {
             this.$router.replace(newUrl);
         },
         async reloadStudyList() {
-            if (this['studies/isFilterEmpty']) {
+            // if we are displaying most recent studies and there is only a label filter -> continue to show the list of most recent studies (filtered by label)
+            const shouldShowMostRecentsWithLabel = this.uiOptions.StudyListContentIfNoSearch == "most-recents" && this.isFilteringOnlyOnLabels();
+
+            if (this['studies/isFilterEmpty'] || shouldShowMostRecentsWithLabel) {
                 if (this.uiOptions.StudyListContentIfNoSearch == "empty") {
                     return;
                 } else if (this.uiOptions.StudyListContentIfNoSearch == "most-recents") {
@@ -548,7 +600,9 @@ export default {
                     }
                     console.log(change);
                     const study = await api.getStudy(change["ID"]);
-                    this.$store.dispatch('studies/addStudy', { studyId: change["ID"], study: study });
+                    if (this.filterLabels.length == 0 || this.filterLabels.filter(l => study["Labels"].includes(l)).length > 0) {
+                        this.$store.dispatch('studies/addStudy', { studyId: change["ID"], study: study });
+                    }
 
                     this.latestStudiesIds.add(change["ID"]);
                     if (this.latestStudiesIds.size == this.uiOptions.MaxStudiesDisplayed) {
@@ -602,23 +656,24 @@ export default {
 
 <template>
     <div>
-        <table class="table table-responsive table-sm study-table">
+        <table class="table table-responsive table-sm study-table table-borderless">
             <thead>
                 <th width="2%" scope="col" class="study-table-header"></th>
                 <th v-for="columnTag in uiOptions.StudyListColumns" :key="columnTag" data-bs-toggle="tooltip"
-                    v-bind:title="columnTooltip(columnTag)" v-bind:width="columns[columnTag].width"
+                    v-bind:title="columnTooltip(columnTag)" v-bind:width="columnWidth(columnTag)"
                     class="study-table-title">{{
                         columnTitle(columnTag)
                     }}</th>
             </thead>
-            <thead class="study-filter" v-on:keyup.enter="search">
-                <th scope="col" class="px-2">
+            <thead class="study-filters" v-on:keyup.enter="search">
+                <th scope="col">
                     <button @click="clearFilters" type="button" class="form-control study-list-filter btn filter-button"
                         data-bs-toggle="tooltip" title="Clear filter">
                         <i class="fa-regular fa-circle-xmark"></i>
                     </button>
                 </th>
                 <th v-for="columnTag in uiOptions.StudyListColumns" :key="columnTag">
+                    <div v-if="columnTag == 'StudyDate'" class="study-list-date-picker">
                     <Datepicker v-if="columnTag == 'StudyDate'" v-model="filterStudyDateForDatePicker"
                         :enable-time-picker="false" range :preset-ranges="datePickerPresetRanges" format="yyyyMMdd"
                         preview-format="yyyyMMdd" text-input arrow-navigation :highlight-week-days="[0, 6]">
@@ -626,18 +681,8 @@ export default {
                             <span @click="presetDateRange(range)">{{ label }}</span>
                         </template>
                     </Datepicker>
-                    <input v-if="columnTag == 'AccessionNumber'" type="text" class="form-control study-list-filter"
-                        v-model="filterAccessionNumber" placeholder="1234"
-                        v-bind:class="getFilterClass('AccessionNumber')" />
-                    <input v-if="columnTag == 'PatientID'" type="text" class="form-control study-list-filter"
-                        v-model="filterPatientID" placeholder="1234" v-bind:class="getFilterClass('PatientID')" />
-                    <input v-if="columnTag == 'PatientName'" type="text" class="form-control study-list-filter"
-                        v-model="filterPatientName" placeholder="John^Doe" v-bind:class="getFilterClass('PatientName')" />
-                    <Datepicker v-if="columnTag == 'PatientBirthDate'" v-model="filterPatientBirthDateForDatePicker"
-                        :enable-time-picker="false" range format="yyyyMMdd" preview-format="yyyyMMdd" text-input
-                        arrow-navigation :highlight-week-days="[0, 6]">
-                    </Datepicker>
-                    <div v-if="columnTag == 'modalities'" class="dropdown">
+                </div>
+                    <div v-else-if="columnTag == 'modalities'" class="dropdown">
                         <button type="button" class="btn btn-default btn-sm filter-button dropdown-toggle"
                             data-bs-toggle="dropdown" id="dropdown-modalities-button" aria-expanded="false"><span
                                 class="fa fa-list"></span>&nbsp;<span class="caret"></span></button>
@@ -660,8 +705,15 @@ export default {
                                     data-bs-toggle="dropdown">{{ $t('close') }}</button></li>
                         </ul>
                     </div>
-                    <input v-if="columnTag == 'StudyDescription'" type="text" class="form-control study-list-filter"
-                        v-model="filterStudyDescription" placeholder="Chest" />
+                    <div v-else-if="columnTag == 'PatientBirthDate'" class="study-list-date-picker">
+                    <Datepicker v-model="filterPatientBirthDateForDatePicker"
+                        :enable-time-picker="false" range format="yyyyMMdd" preview-format="yyyyMMdd" text-input
+                        arrow-navigation :highlight-week-days="[0, 6]">
+                    </Datepicker>
+                    </div>
+                    <input v-else-if="hasFilter(columnTag)" type="text" class="form-control study-list-filter"
+                        v-model="this.filterGenericTags[columnTag]" v-bind:placeholder="getFilterPlaceholder(columnTag)"
+                        v-bind:class="getFilterClass(columnTag)" />
                 </th>
             </thead>
             <tbody>
@@ -673,8 +725,8 @@ export default {
                         </div>
                     </td>
                     <td width="98%" colspan="10" scope="col" class="study-table-header">
-                        <div class="row g-0">
-                            <div class="col-3">
+                        <div class="row g-1">
+                            <div class="col-3 study-list-bulk-buttons">
                                 <ResourceButtonGroup :resourceLevel="'bulk'">
                                 </ResourceButtonGroup>
                             </div>
@@ -741,10 +793,11 @@ input.form-control.study-list-filter {
     margin-bottom: var(--filter-margin);
     padding-top: var(--filter-padding);
     padding-bottom: var(--filter-padding);
+    border-bottom-width: thin;
 }
 
 .filter-button {
-    border: 1px solid #ced4da;
+    border-bottom-width: thin !important;
 }
 
 .search-button {
@@ -790,16 +843,26 @@ button.form-control.study-list-filter {
     line-height: 1.2rem;
 }
 
-.study-table> :not(:first-child) {
+/* .study-table> :not(:first-child) {
     border-top: 0px !important;
+} */
+
+.study-table> :nth-child(odd) {
+    background-color: var(--study-odd-color)
 }
 
-.study-filter th {
+.study-table> :last-child {
+    border-bottom-width: thin;
+}
+
+.study-filters th {
     text-align: left;
-    padding-left: 10px;
     background-color: rgb(240, 240, 240);
+    padding-left: 10px !important;
     padding-top: 0px;
     padding-bottom: 0px;
+    margin-bottom: 5px;
+    vertical-align: middle;    
 }
 
 .study-table td {
@@ -808,10 +871,14 @@ button.form-control.study-list-filter {
 }
 
 .study-list-alert {
-    padding-top: 4px !important;
-    padding-bottom: 4px !important;
-    margin-top: 1px !important;
-    margin-bottom: 1px !important;
+    margin-top: var(--filter-margin);
+    margin-bottom: var(--filter-margin);
+    padding-top: var(--filter-padding);
+    padding-bottom: var(--filter-padding);
+}
+
+.study-list-bulk-buttons {
+    margin-top: var(--filter-margin);
 }
 
 .is-invalid-filter {

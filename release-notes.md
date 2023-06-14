@@ -1,6 +1,25 @@
+
+Changes:
+- added support for labels
+  - new 'UiOptions.EnableEditLabels' configuration
+- added support for VolView 1.1 plugin
+- 'StudyListColumns' can now contain any DICOM Tag that is stored as a MainDicomTag or ExtraMainDicomTag
+
+Fixes:
+- use auth token for /preview if required
+
+
+0.9.3 (2023-05-15)
+==================
+
 Changes:
 - allow opening MedDream viewer on multiple studies
 - new italian translations thanks to Stefano Feroldi
+- new georgian translations thanks to Yomarbuzz
+
+Fixes:
+- improved integration with OHIF v3 and keycloak
+
 
 0.9.2 (2023-04-17)
 ==================

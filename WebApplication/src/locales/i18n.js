@@ -17,6 +17,7 @@ import ka from "./ka.json";
 // import zh from "./zh.json";
 
 const i18n = createI18n({
+  warnHtmlInMessage: 'off',
   locale: 'en',    // when the list of availableLanguages is loaded, this value is updated in LanguagePicker.isConfigurationLoaded
   fallbackLocale: 'en',  
   messages: {
@@ -40,9 +41,13 @@ const i18n = createI18n({
 
 document._mustTranslateDicomTags = false;
 
-function translateDicomTag($t, tagName) {
+function translateDicomTag($t, $te, tagName) {
   if (document._mustTranslateDicomTags) {
-    return $t('dicom_tags.' + tagName);
+    if ($te('dicom_tags.' + tagName)) {
+      return $t('dicom_tags.' + tagName)
+    } else {
+      return tagName;
+    }
   } else {
     return tagName;
   }

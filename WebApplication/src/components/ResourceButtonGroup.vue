@@ -8,7 +8,7 @@ import api from "../orthancApi"
 import resourceHelpers from "../helpers/resource-helpers"
 import clipboardHelpers from "../helpers/clipboard-helpers"
 import TokenLinkButton from "./TokenLinkButton.vue"
-
+import BulkLabelsModal from "./BulkLabelsModal.vue"
 
 export default {
     props: ["resourceOrthancId", "resourceDicomUid", "resourceLevel", "customClass", "seriesMainDicomTags", "studyMainDicomTags", "patientMainDicomTags", "instanceTags"],
@@ -19,7 +19,7 @@ export default {
 
     data() {
         return {
-            isDeleteModalVisible: false
+            isBulkLabelModalVisible: false
         };
     },
     mounted() {
@@ -101,6 +101,18 @@ export default {
                 }
             }
             return "bi bi-eye";
+        },
+        showBulkLabelModal() {
+            // this modal is re-created everytime we open it (to interface correctly with bootstrap5-tags
+            this.isBulkLabelModalVisible = true;
+            // wait that the DOM element is created !
+            setTimeout(() => {
+                this.$refs['bulk-label-modal'].showModal();
+            }, 50);
+        },
+        async onBulkModalClosed() {
+            this.isBulkLabelModalVisible = false;
+            await this.$store.dispatch('labels/refresh');
         }
     },
     watch: {
@@ -116,6 +128,13 @@ export default {
             orthancPeers: state => state.configuration.orthancPeers,
             tokens: state => state.configuration.tokens
         }),
+        componentId() {
+            if (this.resourceLevel == 'bulk') {
+                return 'bulk-id';
+            } else {
+                return this.resourceOrthancId;
+            }
+        },
         hasSendTo() {
             return this.uiOptions.EnableSendTo &&
                 (this.hasSendToDicomWeb || this.hasSendToPeers || this.hasSendToDicomModalities || this.hasSendToPeersWithTransfer);
@@ -125,6 +144,16 @@ export default {
                 return this.selectedStudiesIds.length > 0
             } else {
                 return true;
+            }
+        },
+        hasLabelsButton() {
+            return this.uiOptions.EnableEditLabels && this.resourceLevel == 'bulk';
+        },
+        isLabelsEnabled() {
+            if (this.resourceLevel == 'bulk') {
+                return this.selectedStudiesIds.length > 0
+            } else {
+                return false;
             }
         },
         isDeleteEnabled() {
@@ -186,11 +215,6 @@ export default {
             return this.uiOptions.EnableOpenInOhifViewer || this.uiOptions.EnableOpenInOhifViewer3;
         },
         hasOhifViewerButton() {
-            if (this.tokens.RequiredForLinks) {
-                // OHIF is not available when using user permissions:
-                // https://community.ohif.org/t/ohif-orthanc-token-to-access-a-single-study/727
-                return false;
-            }
             if (this.uiOptions.EnableOpenInOhifViewer3) {
                 return this.hasOhifViewer && (this.resourceLevel == 'study' || this.resourceLevel == 'bulk');
             } else {
@@ -207,9 +231,9 @@ export default {
             }
         },
         isOhifButtonEnabled() {
-            if (this.uiOptions.EnableOpenInOhifViewer3) {
+            if (this.uiOptions.EnableOpenInOhifViewer3) { // OHIF V3
                 return (this.resourceLevel == 'study' || (this.resourceLevel == 'bulk' && this.selectedStudiesIds.length > 0));
-            } else {
+            } else { // OHIF V2
                 return this.resourceLevel == 'study';
             }
         },
@@ -310,7 +334,7 @@ export default {
             }
         }
     },
-    components: { Modal, ShareModal, ModifyModal, TokenLinkButton }
+    components: { Modal, ShareModal, ModifyModal, TokenLinkButton, BulkLabelsModal }
 }
 </script>
 
@@ -353,10 +377,11 @@ export default {
                     :tokenType="'viewer-instant-link'" :opensInNewTab="true">
                 </TokenLinkButton>
             </span>
-            <a v-if="this.resourceLevel == 'instance'" class="btn btn-sm btn-secondary m-1" type="button"
-                data-bs-toggle="tooltip" :title="`${$t('preview')}`" target="blank" v-bind:href="instancePreviewUrl">
-                <i class="bi bi-binoculars"></i>
-            </a>
+            <TokenLinkButton v-if="this.resourceLevel == 'instance'"
+                :iconClass="'bi bi-binoculars'" :level="this.resourceLevel" :linkUrl="instancePreviewUrl"
+                :resourcesOrthancId="[resourceOrthancId]" :title="$t('preview')"
+                :tokenType="'download-instant-link'" :opensInNewTab="true">
+            </TokenLinkButton>
         </div>
         <div class="btn-group" v-if="this.resourceLevel != 'bulk'">
             <TokenLinkButton v-if="uiOptions.EnableDownloadZip && this.resourceLevel != 'instance'"
@@ -459,6 +484,20 @@ export default {
                     </li>
                 </ul>
             </div>
+        </div>
+        <div class="btn-group" v-if="this.resourceLevel == 'bulk'">
+            <!-- <button v-if="hasLabelsButton" class="btn btn-sm btn-secondary m-1" type="button"
+                data-bs-toggle="modal" v-bind:data-bs-target="'#labels2-modal2-' + this.componentId" :disabled="!isLabelsEnabled">
+                <i class="bi bi-tag" data-bs-toggle="tooltip" :title="$t('labels.edit_labels_button')" ></i>
+            </button> -->
+            <button v-if="hasLabelsButton" class="btn btn-sm btn-secondary m-1" type="button"
+                :disabled="!isLabelsEnabled" @click="showBulkLabelModal()">
+                <i class="bi bi-tag" data-bs-toggle="tooltip" :title="$t('labels.edit_labels_button')" ></i>
+            </button>
+            <BulkLabelsModal v-if="uiOptions.EnableEditLabels && isBulkLabelModalVisible" :id="'labels2-modal2-' + this.componentId" ref="bulk-label-modal"
+            :resourceLevel="this.resourceLevel" :resourcesOrthancId="selectedStudiesIds" @bulkModalClosed="onBulkModalClosed">
+
+            </BulkLabelsModal>
         </div>
         <div class="btn-group">
             <div class="dropdown">

@@ -1,20 +1,22 @@
-- use DatePicker in remote modality study list
+- handle the EnableLabels "permission"
+- call /pdf instead of /preview is the instance is a pdf file
+- allow adding non standard columns (https://discourse.orthanc-server.org/t/oe2-additional-columns-in-studylist/3564/3)
 
-- allow selection of multiple series/instances to perform bulk actions (delete/send-to-peer/send-to-modality)
+- use DatePicker in remote modality study list
 
 - predefined filters in config file to display below Studies:
   - "Today": {"StudyDate": "$today"}
   - "CT Last month": {"ModalitiesInStudy": "CT", "StudyDate": "$oneMonthAgo-"}
     predefined keywords: $today, $yesterday, $oneWeekAgo, $oneMonthAgo, $oneYearAgo
 
+UI improvements:
+- Admin theme including responsive tables (including multiline): https://github.com/lekoala/admini
+- tags: https://github.com/lekoala/bootstrap5-tags
+ 
 
-- open OHIF viewer with a "?token=1234" to avoid entering credentials when opening OHIF (since it's another server) 
-  -> need authorization plugin to check auth 
-  -> need API to generate the token (API in OE2 that forwards to ext web-service).
-  -> Probably required for MedDream too + required for creating shares in OsimisViewer
-  -> for OHIF & MedDream: generate a token valid for 30 minutes
-
-
+- modification:
+  - configuration to hide DICOM UID options and select the right one directly for a given setup.
+  - add a Series Description renamer (one dialog to edit SeriesNumber + SeriesDescription of a study)
 
 - ui/app (with missing /) shall open the interface too
 
@@ -52,6 +54,8 @@
 - in local study list, display the number of studies that are present on a remote modality for this patient (e.g: a cold archive)
   - Add a button to fetch all these data (todo: find a way to delete them after a while ?)
   - same with dicom-web and peers ?
+
+- display and search dates with other formats: DD/MM/YYYY
 
 
 Configuration management (ideas + implementation notes):

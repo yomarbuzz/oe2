@@ -24,14 +24,14 @@ export default {
             if (tagName == "instances_number") {
                 return "# " + this.$i18n.t('instances');
             } else {
-                return translateDicomTag(this.$i18n.t, tagName);
+                return translateDicomTag(this.$i18n.t, this.$i18n.te, tagName);
             }
         },
         columnTooltip(tagName) {
             if (tagName == "instances_number") {
                 return this.$i18n.t("instances_number");
             } else {
-                return translateDicomTag(this.$i18n.t, tagName);
+                return translateDicomTag(this.$i18n.t, this.$i18n.te, tagName);
             }
         },
         onDeletedSeries(seriesId) {
@@ -108,6 +108,10 @@ export default {
     border-bottom: 2px !important;
     border-style: solid !important;
     border-color: black !important;
+}
+
+.series-table>:nth-child(odd) {
+    background-color: var(--series-odd-color);
 }
 
 .series-table-header {

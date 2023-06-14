@@ -15,7 +15,8 @@ const _clearedFilter = {
 const state = () => ({
     studies: [],  // studies as returned by tools/find
     studiesIds: [],
-    filters: {..._clearedFilter},
+    dicomTagsFilters: {..._clearedFilter},
+    labelsFilter: [],
     statistics: {},
     isSearching: false,
     selectedStudiesIds: [],
@@ -35,34 +36,26 @@ function insert_wildcards(initialValue) {
 const getters = {
     filterQuery: (state) => {
         let query = {};
-        if (state.filters.StudyDate.length >= 8) {
-            query["StudyDate"] = state.filters.StudyDate;
-        }
-        if (state.filters.AccessionNumber.length >= 1) {
-            query["AccessionNumber"] = insert_wildcards(state.filters.AccessionNumber);
-        }
-        if (state.filters.PatientID.length >= 1) {
-            query["PatientID"] = insert_wildcards(state.filters.PatientID);
-        }
-        if (state.filters.PatientName.length >= 1) {
-            query["PatientName"] = insert_wildcards(state.filters.PatientName);
-        }
-        if (state.filters.PatientBirthDate.length >= 8) {
-            query["PatientBirthDate"] = state.filters.PatientBirthDate;
-        }
-        if (state.filters.StudyDescription.length >= 1) {
-            query["StudyDescription"] = insert_wildcards(state.filters.StudyDescription);
-        }
-        if (state.filters.StudyInstanceUID.length >= 1) {
-            query["StudyInstanceUID"] = state.filters.StudyInstanceUID;
-        }
-        if (state.filters.ModalitiesInStudy.length >= 1) {
-            query["ModalitiesInStudy"] = state.filters.ModalitiesInStudy;
+        for (const [k, v] of Object.entries(state.dicomTagsFilters)) {
+            if (v && v.length >= 1) {
+                if (['StudyDate', 'PatientBirthDate'].indexOf(k) != -1) {
+                    // for dates, accept only exactly 8 chars
+                    if (v.length >= 8) {
+                        query[k] = v;
+                    }
+                } else if (['StudyInstanceUID', 'ModalitiesInStudy'].indexOf(k) != -1 && v.length >= 8) {
+                    // exact match
+                    query[k] = v;
+                } else {
+                    // wildcard match for all other fields
+                    query[k] = insert_wildcards(v);
+                }
+            }
         }
         return query;
     },
     isFilterEmpty: (state, getters) => {
-        return Object.keys(getters.filterQuery).length == 0;
+        return Object.keys(getters.filterQuery).length == 0 && (!state.labelsFilter || state.labelsFilter.length == 0);
     }
 }
 
@@ -79,14 +72,26 @@ const mutations = {
         if (!state.studiesIds.includes(studyId)) {
             state.studiesIds.push(studyId);
             state.studies.push(study);
+        } else {
+            for (let s in state.studies) {
+                if (state.studies[s].ID == studyId) {
+                    state.studies[s] = study;
+                }
+            }
         }
-
     },
     setFilter(state, { dicomTagName, value }) {
-        state.filters[dicomTagName] = value;
+        state.dicomTagsFilters[dicomTagName] = value;
     },
     clearFilter(state) {
-        state.filters = {..._clearedFilter};
+        state.dicomTagsFilters = {..._clearedFilter};
+        state.labelsFilter = [];
+    },
+    setLabelsFilter(state, { labels }) {
+        state.labelsFilter = [];
+        for (let f of labels) {
+            state.labelsFilter.push(f);
+        }
     },
     deleteStudy(state, {studyId}) {
         const pos = state.studiesIds.indexOf(studyId);
@@ -99,6 +104,13 @@ const mutations = {
         const pos2 = state.selectedStudiesIds.indexOf(studyId);
         if (pos2 >= 0) {
             state.selectedStudiesIds.splice(pos, 1);
+        }
+    },
+    refreshStudyLabels(state, {studyId, labels}) {
+        for (const i in state.studies) {
+            if (state.studies[i].ID == studyId) {
+                state.studies[i].Labels = labels
+            }
         }
     },
     setStatistics(state, {statistics}) {
@@ -149,6 +161,10 @@ const actions = {
         const value = payload['value'];
         commit('setFilter', { dicomTagName, value })
     },
+    async updateLabelsFilterNoReload({ commit }, payload) {
+        const labels = payload['labels'];
+        commit('setLabelsFilter', { labels })
+    },
     async clearFilter({ commit, state }) {
         commit('clearFilter');
 
@@ -161,14 +177,14 @@ const actions = {
         commit('setStudiesIds', { studiesIds: [] });
         commit('setStudies', { studies: [] });
     },
-    async reloadFilteredStudies({ commit, getters }) {
+    async reloadFilteredStudies({ commit, getters, state }) {
         commit('setStudiesIds', { studiesIds: [] });
         commit('setStudies', { studies: [] });
 
         if (!getters.isFilterEmpty) {
             try {
                 commit('setIsSearching', { isSearching: true});
-                const studies = (await api.findStudies(getters.filterQuery));
+                const studies = (await api.findStudies(getters.filterQuery, state.labelsFilter, "All"));
                 let studiesIds = studies.map(s => s['ID']);
                 commit('setStudiesIds', { studiesIds: studiesIds });
                 commit('setStudies', { studies: studies });
@@ -205,6 +221,21 @@ const actions = {
     async selectAllStudies({ commit }, payload) {
         const isSelected = payload['isSelected'];
         commit('selectAllStudies', { isSelected: isSelected});
+    },
+    async reloadStudy({ commit }, payload) {
+        const studyId = payload['studyId'];
+        const study = payload['study'];
+        commit('addStudy', { studyId: studyId, study: study });
+        this.dispatch('studies/loadStatistics');
+    },
+    async refreshStudiesLabels({ commit }, payload) {
+        const studiesIds = payload['studiesIds'];
+
+        for (const studyId of studiesIds) {
+            const labels = await api.getLabels(studyId);
+
+            commit('refreshStudyLabels', { studyId: studyId, labels: labels});
+        }
     },
 }
 
